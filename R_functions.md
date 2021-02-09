@@ -18,4 +18,5 @@ data = na.omit(data)
 library(leaps)
 fit1 = regsubsets(target~., data = dataset, nvmax = 10)
 summary(fit1)
+names(summry(fit1))
 ```
