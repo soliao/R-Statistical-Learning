@@ -8,7 +8,7 @@ Greedy approach - take the best split that yields the greatest decrease in RSS/e
 **Tree pruning**\
 Tune the parameter *alpha* (increasing from 0), find the subtree that minimizes
 ```
-E = sum_RSS_from_each_leaf + alpha * |T|
+E = sum_RSS_from_each_leaf + alpha*|T|
 ```
 Different values of *alpha* will return subtrees with different sizes, the optimal subtree can be obtained by cross-validation
 
