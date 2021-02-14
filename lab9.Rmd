@@ -1,0 +1,319 @@
+---
+title: "Lab 9"
+output: html_notebook
+---
+
+Support Vector Machines\
+*Textbook: An Introduction to Statistical Learning with Applications in R*
+
+
+```{r}
+# clear the workspace
+rm(list=ls())
+```
+
+
+---
+
+## Support Vector Classifier
+
+The `svm()` function (library `e1071`) can be used with setting a hyperparameter `cost`.
+
+> larger cost: narrower margin, less mislabelled training data, higher variance
+
+> smaller cost: wider margin, more mislabelled training data, lower variance
+
+
+```{r}
+
+library(e1071)
+
+# create 40 observations of data, with 2-dim feature space
+set.seed(1)
+x = matrix(rnorm(20*2), ncol=2)
+y = c(rep(-1, times=10), rep(1, times=10))
+
+# increase predictors by 1 if y == 1
+x[y==1,] = x[y==1,] + 1
+
+# plot data
+par(pty="s") # axis square
+plot(x, pch=19, col=3-y, main="data", xlab="x_1", ylab="x_2")
+
+```
+
+The data is not separable. We use svm (linear kernel, cost = 10) to fit the data.
+
+```{r}
+# create dataframe
+df = data.frame(x=x, y=as.factor(y))
+
+# svm (linear kernel, cost = 10)
+svm_linear = svm(y~., data=df, kernel="linear", cost=10, scale=FALSE)
+
+# plot
+plot(svm_linear, df)
+
+```
+
+```{r}
+# print the summary
+summary(svm_linear)
+names(svm_linear)
+```
+
+The `index` attribute of the svm model gives the **index of the support vectors**.
+
+```{r}
+# print out the index of the support vectors
+svm_linear$index
+```
+
+
+## Hyperparameter Tuning
+
+The `tune()` function (`e1071` library) can be used to tune the hyperparameters in a model by 10-fold cross-validation.
+
+```{r}
+# tune different cost values
+model_tuning = tune(svm, y~., data=df, kernel="linear",
+                    range=list(cost=c(0.001, 0.01, 0.1, 1, 2, 5, 10, 100, 1000)))
+
+# print summary
+summary(model_tuning)
+```
+
+We see that `cost=0.1` gives the smallest cross-validation error.
+
+```{r}
+# inspect tuning outputs
+names(model_tuning)
+```
+
+We can see the best parameters using the `$best.parameters` attribute. We can call `$best.model` to return the best model.
+
+```{r}
+# best hyperparameters
+model_tuning$best.parameters
+```
+
+
+```{r}
+# print details of the best model
+summary(model_tuning$best.model)
+```
+
+From the summary we see that the best model (`cost` = 0.1) uses 16 support vectors (8 from each class).
+
+Use `predict()` to test on the test data.
+
+```{r}
+# create test data
+X_test = matrix(rnorm(20*2), ncol=2) # shape = (20, 2)
+y_test = sample(c(-1, 1), size=20, replace=TRUE)
+
+X_test[y_test==1, ] = X_test[y_test==1, ] + 1
+
+
+# create test dataframe
+df_test = data.frame(x=X_test, y=as.factor(y_test))
+
+# predict
+pred = predict(model_tuning$best.model, df_test)
+
+# confusion matrix
+table(real=y_test, predict=pred)
+```
+
+The svm misclassified 3 out of 20 test observations.
+
+
+---
+
+## Support Vector Machine
+
+
+**Non-linear kernels**
+
+`svm(..., kernel = radial, gamma = 1, cost = 1)` fits SVM with radial kernels (with hyperparameter gamma)
+
+Setting `kernel = polynomial` uses the polynomial kernels.
+
+```{r}
+# generate data
+x = matrix(rnorm(200*2), ncol=2) # shape = ()
+x[1:100,] = x[1:100,] + 2
+x[101:150,] = x[101:150,] - 2
+
+y = c(rep(1, 150), rep(2, 50))
+
+par(pty="s") # axis square
+plot(x, col=y, main="data")
+
+# create dataframe
+df = data.frame(x=x, y=as.factor(y))
+
+# split into training (n=100) and test (n=100) sets
+train_index = sample(200, 100)
+
+
+# svm fitting (radial kernel)
+svm_radial = svm(y~., data=df[train_index,], kernel="radial", gamma=1, cost=1)
+
+# see fitting result
+plot(svm_radial, df[train_index,])
+
+```
+
+Similarly, we can use the `tune()` function to find the best combination of `gamma` and `cost`.
+
+```{r}
+# tuning the hyperparamenters 'cost' and `gamma`
+tuning_models = tune(svm, y~., data=df, kernel="radial",
+                     ranges=list(cost=c(0.01, 0.1, 1, 2, 10, 100, 1000),
+                                 gamma=c(0.1, 0.5, 1, 2, 3, 4, 5, 10)))
+```
+
+
+Inspect the best hyperparameters and the performance
+
+```{r}
+tuning_models$best.parameters
+
+summary(tuning_models$best.model)
+```
+
+`cost = 10` and `gamma = 0.5` were chosen.
+
+
+```{r}
+# predict on test data
+pred = predict(tuning_models$best.model, x[-train_index,])
+
+# confusion matrix
+table(real = y[-train_index], pred = pred)
+
+```
+
+10 out of 100 data (10%) are misclassified.
+
+```{r}
+# plot
+plot(tuning_models$best.model, df[-train_index, ])
+```
+
+
+---
+
+## ROC Curves
+
+```{r}
+library(ROCR)
+```
+
+The `performance(prediction.obj, measure, x_measure)` function (`ROCR` library) calculates the specified metrics.
+
+We set `measure = "tpr"` and `x_measure = "fpr"` to return **true positive rate** and **false positive rate**.
+
+ROCR routine starts with creating a **prediction object** by calling the function `prediction(predictions, labels)`.
+
+
+```{r}
+# helper function to plot the ROC curve
+plot_ROC = function(pred_values, real_labels, ...){
+  
+  # pred_values: predicted values
+  # real_labels: real labels
+  
+  pred_obj = prediction(pred_values, real_labels, label.ordering = c(2, 1))
+  
+  # performance metrics tpr and fpr
+  tpr_fpr = performance(pred_obj, "tpr", "fpr")
+  
+  # plot ROC
+  plot(tpr_fpr, ...)
+}
+
+```
+
+`svm(..., decision.values=TRUE)` outputs the fitted value instead of the predicted class.
+
+```{r}
+svm_radial_values = svm(y~., data=df[train_index,], kernel="radial", gamma=0.5, cost=10, decision.values=TRUE)
+
+# predict on training data
+pred_values_train = attributes(predict(svm_radial_values, df[train_index,], decision.values=TRUE))$decision.values
+
+# plot ROC
+par(pty="s") # axis square
+plot_ROC(pred_values_train, df[train_index,"y"], main="ROC", col="blue", lwd=2)
+
+# predict on test data
+pred_values_test = attributes(predict(svm_radial_values, df[-train_index,], decision.values=TRUE))$decision.values
+
+# plot ROC
+plot_ROC(pred_values_test, df[-train_index,"y"], col="red", add=TRUE, lwd=2)
+
+# add legend
+legend(0.6, 0.3, legend=c("train", "test"), col=c("blue", "red"), lty=c(1,1), lwd=2)
+```
+
+
+---
+
+## Application to Gene Expression Data
+
+```{r}
+library(ISLR)
+
+# the Khan dataset
+names(Khan)
+attach(Khan)
+```
+
+```{r}
+# shape of the data
+dim(xtrain)
+dim(xtest)
+```
+
+The training size is 63 and the test size is 20. Each data has a 2308-dimensional features.
+
+Use a **linear kernel** because the dimension of the features is much greater than the number of observations. Using polynomial of radial kernels will result in greater feature size.
+
+We use the `tune()` function to find the best value of `cost`.
+
+```{r}
+# create the dataframe
+df = data.frame(x = xtrain, y = as.factor(ytrain))
+
+# use cross validation to test different cost values
+candidates = tune(svm, y~., data=df, kernel="linear", ranges=list(cost=c(0.01, 0.1, 1, 5, 10, 20, 100, 1000)))
+
+# the best cost
+print(candidates$best.parameters)
+```
+
+```{r}
+summary(candidates)
+```
+
+It seems that all cost values gives the same performance.
+
+```{r}
+# predict on the test data
+pred = predict(candidates$best.model, xtest)
+
+# confusion matrix
+table(truth = ytest, prediction = pred)
+```
+
+Among the 20 test data, 2 of them are misclassified (actual class 3, predicted as class 2).
+
+
+
+
+
+
+
+
